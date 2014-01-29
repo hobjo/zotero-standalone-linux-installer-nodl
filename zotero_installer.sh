@@ -1,84 +1,74 @@
 #!/bin/bash
 #
-# Zotero installer
-# Copyright 2011-2013 Sebastiaan Mathot
-# <http://www.cogsci.nl/>
+# Installer for Zotero standalone on Linux platforms.
+# Modified fork from <https://github.com/smathot/zotero_installer> to
+# avoid automatic download from the official website.
+# Instead, the user can download and install the file he wants easily.
+# I found this solution a bit more stable along Zotero releases.
+# 
+# As previous work was released under the GPL v2 licence, I use the same
+# licence, while I am not really sure it makes really sense in my country...
+# So, make sure what this script does is right for you before running it.
+# And then do whatever you want with it.
 #
-# This file is part of qnotero.
-#
-# qnotero is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# qnotero is distributed in the hope that it will be useful,
+# This script is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License
-# along with qnotero.  If not, see <http://www.gnu.org/licenses/>.
+# If your were not provide a copy of the GNU General Public License along
+# with this file, you can obtain it at <http://www.gnu.org/licenses/>.
 
-VERSION="4.0.17"
-if [ `uname -m` == "x86_64" ]; then
-	ARCH="x86_64"
-else
-	ARCH="i686"
-fi
-TMP="/tmp/zotero.tar.bz2"
+# USAGE : 
+# $ sudo /path/to/this/script /path/to/zotero-archive-from-official-website.tar.bz2
+
+# Tested for Zotero 4.0.x up to x = 17
+
 DEST_FOLDER=zotero
 EXEC=zotero
+ZOTERO_ARCHIVE=$1
 
-echo ">>> This script will download and install Zotero standalone on your system."
-echo ">>> Do you want to continue?"
-echo ">>> y/n (default=y)"
-read INPUT
-if [ "$INPUT" = "n" ]; then
-	echo ">>> Aborting installation"
-	exit 0
-fi
+DEST="/opt"
+MENU_PATH="/usr/share/applications/zotero.desktop"
+MENU_DIR="/usr/share/applications"
 
-echo ">>> Do you want to install Zotero globally (g) or locally (l)."
-echo ">>> Root access is required for a global installation."
-echo ">>> g/l (default=l)"
-read INPUT
-if [ "$INPUT" != "g" ]; then
-	echo ">>> Installing locally"
-	DEST="$HOME"
-	MENU_PATH="$HOME/.local/share/applications/zotero.desktop"
-	MENU_DIR="$HOME/.local/share/applications"
-else
-	echo ">>> Installing globally"
-	DEST="/opt"
-	MENU_PATH="/usr/share/applications/zotero.desktop"
-	MENU_DIR="/usr/share/applications"
-fi
+DEBUG_MSG_ACTIVE=true
 
-
-echo ">>> Please input the version of Zotero."
-echo ">>> (default=$VERSION)"
-read INPUT
-if [ "$INPUT" != "" ]; then
-	VERSION=$INPUT
-fi
-
-echo ">>> Please input your systems architecture (i686 or x86_64)."
-echo ">>> (default=$ARCH)"
-read INPUT
-if [ "$INPUT" != "" ]; then
-	ARCH=$INPUT
-fi
-
-URL="http://download.zotero.org/standalone/$VERSION/Zotero-${VERSION}_linux-$ARCH.tar.bz2"
-
-echo ">>> Downloading Zotero standalone $VERSION for $ARCH"
-echo ">>> URL: $URL"
-
-wget $URL -O $TMP
-if [ $? -ne 0 ]; then
-	echo ">>> Failed to download Zotero"
+error_exit() {
+	for arg in "$@"; do
+		echo ">>> $arg"
+	done
 	echo ">>> Aborting installation, sorry!"
 	exit 1
+}
+
+action_start() {
+	if [ "$DEBUG_MSG_ACTIVE" ]; then
+		echo -n "$1..."
+	fi
+}
+
+action_end() {
+	if [ "$DEBUG_MSG_ACTIVE" ]; then
+		if [ -z "$1" ]; then
+			echo " done."
+		else
+			echo " done ($1)."
+		fi
+	fi
+}
+
+debug_msg () {
+	if [ "$DEBUG_MSG_ACTIVE" ]; then
+		for arg in "$@"; do
+			echo "$arg"
+		done
+	fi
+}
+
+# Does the archive file given as parameter exist?
+if [ ! -f "$ZOTERO_ARCHIVE" ]; then
+	error_exit "Missing argument (Zotero achive)" "Syntax: $0 PATH_TO_ZOTERO_ARCHIVE" "Zotero archive is the *.tar.bz2 file downloaded from the official website."
 fi
 
 if [ -d $DEST/$DEST_FOLDER ]; then
@@ -87,41 +77,68 @@ if [ -d $DEST/$DEST_FOLDER ]; then
 	read INPUT
 	if [ "$INPUT" = "y" ]; then
 		echo ">>> Removing old Zotero installation"
+		action_start "Removing $DEST/$DEST_FOLDER"
 		rm -Rf $DEST/$DEST_FOLDER
+		action_end
 		if [ $? -ne 0 ]; then
-			echo ">>> Failed to remove old Zotero installation"
-			echo ">>> Aborting installation, sorry!"
-			exit 1
+			error_exit "Failed to remove old Zotero installation" "This script should be run as root or with sudo."
 		fi
 	else
-		echo ">>> Aborting installation"
+		echo ">>> Aborting installation (user cancelled)."
 		exit 0
 	fi
 fi
 
-echo ">>> Extracting Zotero"
-echo ">>> Target folder: $DEST/$DEST_FOLDER"
-
-tar -xpf $TMP -C $DEST
+# Create a tmp dir for extraction, and anticipate its removal at the end of the script
+tdir=
+cleanup() {
+    test -n "$tdir" && test -d "$tdir" && rm -rf "$tdir" && debug_msg "Temp dir \"$tdir\" automatically removed."
+}
+action_start "Creating tmp dir (will remove it later)"
+tdir="$(mktemp -d)"
 if [ $? -ne 0 ]; then
-	echo ">>> Failed to extract Zotero"
-	echo ">>> Aborting installation, sorry!"
-	exit 1
+	error_exit "Failed to create temp dir for extraction."
 fi
+action_end "created \"$tdir\""
 
-mv $DEST/Zotero_linux-$ARCH $DEST/$DEST_FOLDER
+action_start "Setting up traps"
+trap cleanup EXIT
+trap 'cleanup; exit 127' INT TERM
+action_end
+
+# Decompress archive in tmp dir
+action_start "Extracting program files from \"$ZOTERO_ARCHIVE\" to temp dir"
+tar -xaf $ZOTERO_ARCHIVE -C $tdir
 if [ $? -ne 0 ]; then
-	echo ">>> Failed to move Zotero to $DEST/$DEST_FOLDER"
-	echo ">>> Aborting installation, sorry!"
-	exit 1
+	error_exit "Failed to extract ${ZOTERO_ARCHIVE}."
 fi
+action_end
 
-if [ -f $MENU_DIR ]; then
-	echo ">>> Creating $MENU_DIR"
-	mkdir $MENU_DIR
+# Get the name of the base directory of the extracted files
+action_start "Getting program files base dir"
+zbasedir=$(tar -tf $ZOTERO_ARCHIVE | sort | head -n 1)
+zbasedir=${zbasedir%/}
+if [ -z "$zbasedir" -o ! -d "$tdir/$zbasedir" ]; then
+	error_exit "Failed to identify program files base directory."
 fi
+action_end
 
-echo ">>> Creating menu entry"
+# Moving files to the final installation dir
+action_start "Moving \"$tdir/$zbasedir\" to \"$DEST/$DEST_FOLDER\""
+mv "$tdir/$zbasedir" "$DEST/$DEST_FOLDER"
+if [ $? -ne 0 ]; then
+	error_exit "Failed to move Zotero to \"$DEST/$DEST_FOLDER\"" "This script should be run as root or with sudo."
+fi
+action_end
+
+# Create menu entries
+# Removed from original script (what was it for?)
+# if [ -f $MENU_DIR ]; then
+# 	echo ">>> Creating $MENU_DIR"
+# 	mkdir $MENU_DIR
+# fi
+
+action_start "Creating menu entry"
 echo "[Desktop Entry]
 Name=Zotero
 Comment=Open-source reference manager (standalone version)
@@ -130,13 +147,9 @@ Icon=accessories-dictionary
 Type=Application
 StartupNotify=true" > $MENU_PATH
 if [ $? -ne 0 ]; then
-	echo ">>> Failed to create menu entry"
-	echo ">>> Aborting installation, sorry!"
-	exit 1
+	error_exit "Failed to create menu entry." "This script should be run as root or with sudo."
 fi
+action_end
 
-echo ">>> Done!"
-echo
-echo ">>> Don't forget to check out Qnotero, the Zotero sidekick!"
-echo ">>> URL: http://www.cogsci.nl/qnotero"
-
+echo "Installation complete under \"$DEST/$DEST_FOLDER\"."
+echo "You may remove $ZOTERO_ARCHIVE now (not required any longer)."
