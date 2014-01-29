@@ -20,7 +20,7 @@ Example for Zotero 4.0.17 (may be outdated) and a x86_84 OS:
 
 2- Download zotero_installer.sh and run it. This extracts Zotero archive into /opt/zotero, and create a Zotero menu entry.
 
-	wget https://raw.github.com/hobjo/zotero_standalone-linux-installer-nodl/master/zotero_installer.sh -O /tmp/zotero_installer.sh
+	wget https://raw.github.com/hobjo/zotero-standalone-linux-installer-nodl/master/zotero_installer.sh -O /tmp/zotero_installer.sh
 	chmod +x /tmp/zotero_installer.sh
 	/tmp/zotero_installer.sh /tmp/Zotero-4.0.17_linux-x86_64.tar.bz2
 
